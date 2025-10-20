@@ -530,3 +530,16 @@ with st.expander("🗒️ Log trades → build time‑of‑day edge", expanded=F
                            file_name="vsrp_trade_log.csv", mime="text/csv")
     except Exception:
         st.info("No log yet. Add a trade to populate.")
+        st.markdown("---")
+st.subheader("📈 IV/RV Scanner")
+
+ticker = st.text_input("Enter Ticker (e.g. AAPL, TSLA, MSFT)")
+
+if ticker:
+    result = get_iv_rv_ratio(ticker.upper())
+    if isinstance(result, dict):
+        st.markdown("### 🔍 Volatility Snapshot")
+        for k, v in result.items():
+            st.write(f"**{k}:** {v}")
+    else:
+        st.error(result)
