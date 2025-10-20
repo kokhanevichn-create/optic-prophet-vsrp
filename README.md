@@ -11,13 +11,13 @@ from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 from math import log, sqrt, exp
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from scipy.stats import norm, zscore
+from scipy.stats import norm
 
 # ---------------------------- CONFIG ---------------------------- #
 LIQUID_TICKERS = ["MSFT", "META", "GOOG", "AMZN", "TSLA", "AAPL"]
@@ -41,7 +41,7 @@ CREDIT_PUT_DELTAS = (-0.25, -0.10)    # short, long
 CREDIT_CALL_DELTAS= (0.25, 0.10)
 
 MOMENTUM_WINDOW = 90
-MAX_WORKERS = min(8, len(LIQUID_TICKERS))
+MAX_WORKERS = min(8, max(1, len(LIQUID_TICKERS)))
 
 # Time gating (ET). Deploy Tues–Thu 10:00–11:15. Tweak as you learn.
 TIMEZONE_ET = ZoneInfo("America/New_York")
@@ -53,7 +53,7 @@ DEPLOY_WINDOWS = {
 # Files
 METRICS_CSV = "vsrp_metrics.csv"      # stores daily ATM IV, RR25, IVRV, IV Rank
 TRADE_LOG_CSV = "vsrp_trade_log.csv"  # optional: your executions with timestamps
-SKew_ZONES_CSV = "vsrp_skew_zones.csv"
+SKEW_ZONES_CSV = "vsrp_skew_zones.csv"
 
 # Position sizing ladder (optional) — use your own equity file or set manually
 BASE_EQUITY = 20_000.0
@@ -61,14 +61,14 @@ BASE_RISK_PCT = 0.005                  # 0.5% per trade at baseline
 SCALE_UP_AT   = 0.30                   # +30% since baseline -> 1.5x
 FALLBACK_AT   = -0.15                  # -15% drawdown -> 0.5x
 
-# ---------------------------- UTILS ---------------------------- #
+# ---------------------------- HELPERS ---------------------------- #
 def _annualized_rv_from_prices(prices: pd.Series, window: int = 20) -> float:
     if prices is None or len(prices) < window + 2:
         return np.nan
     rets = np.log(prices).diff().dropna()
     return rets.tail(window).std() * sqrt(252)
 
-def _choose_expiry(tkr: str) -> Optional[str]:
+def _choose_expiry(tkr: str, target_dte: int = TARGET_DTE) -> Optional[str]:
     try:
         opts = yf.Ticker(tkr).options
         if not opts:
@@ -81,7 +81,7 @@ def _choose_expiry(tkr: str) -> Optional[str]:
             if dte <= 0:
                 continue
             if MIN_DTE <= dte <= 365:   # hard cap
-                picks.append((abs(dte - TARGET_DTE), dte, d))
+                picks.append((abs(dte - target_dte), dte, d))
         if not picks:
             return None
         picks.sort(key=lambda x: x[0])
@@ -93,9 +93,7 @@ def _bs_delta(S: float, K: float, T: float, r: float, sigma: float, q: float, is
     if S <= 0 or K <= 0 or T <= 0 or sigma <= 0:
         return np.nan
     d1 = (log(S / K) + (r - q + 0.5 * sigma * sigma) * T) / (sigma * sqrt(T))
-    if is_call:
-        return exp(-q * T) * norm.cdf(d1)
-    return -exp(-q * T) * norm.cdf(-d1)
+    return exp(-q * T) * norm.cdf(d1) if is_call else -exp(-q * T) * norm.cdf(-d1)
 
 def _mid(row) -> float:
     bid = float(row.get("bid", np.nan))
@@ -114,18 +112,20 @@ def _attach_delta(df: pd.DataFrame, S: float, T: float, r: float, q: float, is_c
         return pd.DataFrame()
     sig = w["impliedVolatility"].astype(float).clip(lower=1e-6, upper=5.0)
     K   = w["strike"].astype(float)
-    w["delta"] = [_bs_delta(S, k, T, RISK_FREE_RATE, s, DIV_YIELD, is_call) for k, s in zip(K, sig)]
+    w["delta"] = [_bs_delta(S, k, T, r, s, q, is_call) for k, s in zip(K, sig)]
     w["mid"] = w.apply(_mid, axis=1)
     w = w.dropna(subset=["delta", "impliedVolatility", "mid"])
     return w
 
-def _nearest_by_delta(df: pd.DataFrame, target_delta: float, side: str) -> Optional[pd.Series]:
+def _nearest_by_delta(df: pd.DataFrame, target_delta: float, side: str = "") -> Optional[pd.Series]:
     if df is None or df.empty:
         return None
-    i = (df["delta"] - target_delta).abs().idxmin()
-    row = df.loc[i]
-    row = row.copy()
-    row["side"] = side
+    idx = (df["delta"] - target_delta).abs().idxmin()
+    if pd.isna(idx):
+        return None
+    row = df.loc[idx].copy()
+    if side:
+        row["side"] = side
     return row
 
 def _atm_iv(calls: pd.DataFrame, puts: pd.DataFrame, S: float) -> float:
@@ -139,13 +139,20 @@ def _atm_iv(calls: pd.DataFrame, puts: pd.DataFrame, S: float) -> float:
             ivs.append(iv)
     return float(np.nanmean(ivs)) if ivs else np.nan
 
+def _zscore_nan(a: np.ndarray) -> np.ndarray:
+    a = np.asarray(a, dtype=float)
+    mu = np.nanmean(a)
+    sd = np.nanstd(a)
+    if not np.isfinite(sd) or sd == 0:
+        return np.full_like(a, np.nan)
+    return (a - mu) / sd
+
 def _momentum_bias(tkr: str) -> Optional[str]:
     df = yf.download(tkr, period="6mo", progress=False)
-    if df.empty:
+    if df is None or df.empty:
         return None
     df["SMA20"] = df["Close"].rolling(20).mean()
     df["SMA50"] = df["Close"].rolling(50).mean()
-    df["SMA90"] = df["Close"].rolling(MOMENTUM_WINDOW).mean()
     r = df.iloc[-1]
     if r["Close"] > r["SMA20"] > r["SMA50"]:
         return "bull"
@@ -158,7 +165,6 @@ def _get_next_earnings_date(tkr: str) -> Optional[datetime.date]:
         edf = yf.Ticker(tkr).get_earnings_dates(limit=1)
         if edf is None or edf.empty:
             return None
-        # index holds the timestamp
         return pd.to_datetime(edf.index[0]).date()
     except Exception:
         return None
@@ -168,12 +174,12 @@ def _today_et():
 
 def _in_deploy_window(now_et: Optional[datetime] = None) -> bool:
     now = now_et or _today_et()
-    wd = (now.weekday())  # Monday=0
+    wd = now.weekday()
     if wd not in DEPLOY_WINDOWS:
         return False
-    hms = now.strftime("%H:%M")
+    t = now.strftime("%H:%M")
     for start, end in DEPLOY_WINDOWS[wd]:
-        if start <= hms <= end:
+        if start <= t <= end:
             return True
     return False
 
@@ -192,7 +198,12 @@ def _save_metrics(df: pd.DataFrame) -> None:
 def _append_metric_row(row: dict) -> None:
     df = _load_metrics()
     rowdf = pd.DataFrame([row])
-    mask = (df["date"] == row["date"]) & (df["ticker"] == row["ticker"])
+    if "date" in row and not pd.api.types.is_datetime64_any_dtype(rowdf["date"]):
+        try:
+            rowdf["date"] = pd.to_datetime(rowdf["date"])
+        except Exception:
+            pass
+    mask = (df["date"] == rowdf.at[0, "date"]) & (df["ticker"] == rowdf.at[0, "ticker"])
     if mask.any():
         for k, v in row.items():
             df.loc[mask, k] = v
@@ -206,21 +217,17 @@ def _compute_iv_rank_from_history(ticker: str, today_iv: float, date: pd.Timesta
     if df_t.empty:
         return np.nan, np.nan
     df_t = df_t.sort_values("date")
-    # only last N days window
-    start_cut = date - pd.Timedelta(days=window_days*1.2)  # a little extra margin
+    start_cut = date - pd.Timedelta(days=window_days*1.2)
     df_t = df_t[df_t["date"] >= start_cut]
     series = df_t["atm_iv"].astype(float).dropna()
-    if len(series) < 10:               # need at least some history
+    if len(series) < 10:
         return np.nan, np.nan
     iv_min, iv_max = float(series.min()), float(series.max())
     if not np.isfinite(iv_min) or not np.isfinite(iv_max) or iv_max <= iv_min:
         return np.nan, np.nan
     rank_today = (today_iv - iv_min) / (iv_max - iv_min) * 100.0
     prev_iv = float(series.iloc[-1]) if len(series) >= 1 else np.nan
-    if np.isfinite(prev_iv) and iv_max > iv_min:
-        prev_rank = (prev_iv - iv_min) / (iv_max - iv_min) * 100.0
-    else:
-        prev_rank = np.nan
+    prev_rank = (prev_iv - iv_min) / (iv_max - iv_min) * 100.0 if np.isfinite(prev_iv) else np.nan
     delta = rank_today - prev_rank if np.isfinite(prev_rank) else np.nan
     return float(rank_today), float(delta)
 
@@ -246,14 +253,14 @@ class Signal:
 
 @dataclass
 class Spread:
-    kind: str                 # "Bull Call Debit", "Bear Put Debit", "Bull Put Credit", "Bear Call Credit"
+    kind: str
     expiry: str
     width: float
-    net: float                # debit (>0) or credit (>0)
+    net: float
     max_gain: float
     max_loss: float
     breakeven: Optional[float]
-    long_leg: Optional[dict]  # {"strike":..., "delta":..., "mid":...}
+    long_leg: Optional[dict]
     short_leg: Optional[dict]
 
 # ---------------------------- CORE MEASURES ---------------------------- #
@@ -267,13 +274,18 @@ def _risk_reversal_25(calls: pd.DataFrame, puts: pd.DataFrame) -> float:
 def _collect_snapshot(tkr: str) -> Optional[Tuple[Signal, pd.DataFrame, pd.DataFrame, float, float]]:
     try:
         t = yf.Ticker(tkr)
-        spot = float(t.fast_info["last_price"]) if "last_price" in t.fast_info else float(t.history(period="1d")["Close"][-1])
-
+        spot = None
+        try:
+            spot = float(t.fast_info.get("last_price"))
+        except Exception:
+            try:
+                spot = float(t.history(period="1d")["Close"].iloc[-1])
+            except Exception:
+                return None
         expiry = _choose_expiry(tkr)
         if expiry is None:
             return None
 
-        # DTE
         today = datetime.now(timezone.utc).date()
         dte = (datetime.strptime(expiry, "%Y-%m-%d").date() - today).days
         T = max(dte, 1) / 365.0
@@ -286,14 +298,12 @@ def _collect_snapshot(tkr: str) -> Optional[Tuple[Signal, pd.DataFrame, pd.DataF
         atm_iv = _atm_iv(calls, puts, spot)
         rr25   = _risk_reversal_25(calls, puts)
 
-        # Realized vol (20d)
         px = yf.download(tkr, period="1y", progress=False)["Close"]
         rv20 = _annualized_rv_from_prices(px, window=20)
         ivrv = atm_iv / rv20 if (np.isfinite(atm_iv) and np.isfinite(rv20) and rv20 > 0) else np.nan
 
         mom = _momentum_bias(tkr)
 
-        # Earnings days
         edate = _get_next_earnings_date(tkr)
         e_days = None
         if edate:
@@ -318,15 +328,14 @@ def _select_vertical_spread(calls: pd.DataFrame, puts: pd.DataFrame, S: float, T
         short= _nearest_by_delta(calls, DEBIT_CALL_DELTAS[1], "SHORT")
         if long is None or short is None:
             return None
-        if short["strike"] <= long["strike"]:
-            # push short further OTM
+        if float(short["strike"]) <= float(long["strike"]):
             cands = calls[calls["strike"] > long["strike"]]
             if cands.empty:
                 return None
             short = cands.iloc[(cands["delta"] - DEBIT_CALL_DELTAS[1]).abs().idxmin()]
         width = float(short["strike"] - long["strike"])
         width = _cap_width(width, S)
-        net = float(long["mid"] - short["mid"])  # debit
+        net = float(long["mid"] - short["mid"])
         max_gain = width - net
         max_loss = net
         be = float(long["strike"] + net)
@@ -339,14 +348,14 @@ def _select_vertical_spread(calls: pd.DataFrame, puts: pd.DataFrame, S: float, T
         short= _nearest_by_delta(puts, DEBIT_PUT_DELTAS[1], "SHORT")
         if long is None or short is None:
             return None
-        if short["strike"] >= long["strike"]:
+        if float(short["strike"]) >= float(long["strike"]):
             cands = puts[puts["strike"] < long["strike"]]
             if cands.empty:
                 return None
             short = cands.iloc[(cands["delta"] - DEBIT_PUT_DELTAS[1]).abs().idxmin()]
         width = float(long["strike"] - short["strike"])
         width = _cap_width(width, S)
-        net = float(long["mid"] - short["mid"])  # debit
+        net = float(long["mid"] - short["mid"])
         max_gain = width - net
         max_loss = net
         be = float(long["strike"] - net)
@@ -359,14 +368,14 @@ def _select_vertical_spread(calls: pd.DataFrame, puts: pd.DataFrame, S: float, T
         long = _nearest_by_delta(puts, CREDIT_PUT_DELTAS[1], "LONG")
         if long is None or short is None:
             return None
-        if long["strike"] >= short["strike"]:
+        if float(long["strike"]) >= float(short["strike"]):
             cands = puts[puts["strike"] < short["strike"]]
             if cands.empty:
                 return None
             long = cands.iloc[(cands["delta"] - CREDIT_PUT_DELTAS[1]).abs().idxmin()]
         width = float(short["strike"] - long["strike"])
         width = _cap_width(width, S)
-        net = float(short["mid"] - long["mid"])  # credit
+        net = float(short["mid"] - long["mid"])
         max_gain = net
         max_loss = width - net
         be = float(short["strike"] - net)
@@ -379,14 +388,14 @@ def _select_vertical_spread(calls: pd.DataFrame, puts: pd.DataFrame, S: float, T
         long = _nearest_by_delta(calls, CREDIT_CALL_DELTAS[1], "LONG")
         if long is None or short is None:
             return None
-        if long["strike"] <= short["strike"]:
+        if float(long["strike"]) <= float(short["strike"]):
             cands = calls[calls["strike"] > short["strike"]]
             if cands.empty:
                 return None
             long = cands.iloc[(cands["delta"] - CREDIT_CALL_DELTAS[1]).abs().idxmin()]
         width = float(long["strike"] - short["strike"])
         width = _cap_width(width, S)
-        net = float(short["mid"] - long["mid"])  # credit
+        net = float(short["mid"] - long["mid"])
         max_gain = net
         max_loss = width - net
         be = float(short["strike"] + net)
@@ -396,40 +405,42 @@ def _select_vertical_spread(calls: pd.DataFrame, puts: pd.DataFrame, S: float, T
     return None
 
 # ---------------------------- SKEW MAGNET ZONES ---------------------------- #
-def _skew_magnet_zones(tkr: str, calls: pd.DataFrame, puts: pd.DataFrame, spot: float) -> list[dict]:
-    """Heuristic: find OI clusters around spot ±10% and post-gap shelves."""
-    zones = []
-    # OI clusters
-    spread = 0.10 * spot
-    mask_calls = (calls["strike"].between(spot - spread, spot + spread))
-    mask_puts  = (puts["strike"].between(spot - spread, spot + spread))
-    c_grp = calls[mask_calls].groupby("strike")["openInterest"].sum()
-    p_grp = puts[mask_puts].groupby("strike")["openInterest"].sum()
-    if not c_grp.empty or not p_grp.empty:
-        total = (c_grp + p_grp).fillna(0.0)
-        if not total.empty:
-            peaks = total.sort_values(ascending=False).head(3)
-            for k, v in peaks.items():
-                zones.append({"ticker": tkr, "level": float(k), "type": "OI_cluster", "weight": int(v)})
+def _skew_magnet_zones(tkr: str, calls: pd.DataFrame, puts: pd.DataFrame, spot: float) -> List[dict]:
+    zones: List[dict] = []
+    try:
+        spread = 0.10 * spot
+        if calls is not None and not calls.empty:
+            mask_calls = calls["strike"].between(spot - spread, spot + spread)
+            c_grp = calls[mask_calls].groupby("strike")["openInterest"].sum()
+        else:
+            c_grp = pd.Series(dtype=float)
+        if puts is not None and not puts.empty:
+            mask_puts  = puts["strike"].between(spot - spread, spot + spread)
+            p_grp = puts[mask_puts].groupby("strike")["openInterest"].sum()
+        else:
+            p_grp = pd.Series(dtype=float)
+        total = pd.concat([c_grp, p_grp], axis=0).groupby(level=0).sum().sort_values(ascending=False)
+        peaks = total.head(3)
+        for k, v in peaks.items():
+            zones.append({"ticker": tkr, "level": float(k), "type": "OI_cluster", "weight": int(v)})
 
-    # Gap shelves (post-gap consolidation zones)
-    px = yf.download(tkr, period="6mo", progress=False)
-    if not px.empty:
-        px["prev_close"] = px["Close"].shift(1)
-        px["gap"] = (px["Open"] - px["prev_close"]) / px["prev_close"]
-        gaps = px[px["gap"].abs() > 0.02].copy()
-        for _, row in gaps.tail(5).iterrows():  # last 5 gaps
-            day = _
-            start = px.loc[day].name
-            window = px.loc[start:].head(8)  # look at following week
-            if len(window) >= 3:
-                shelf = window["Close"].median()
-                zones.append({"ticker": tkr, "level": float(shelf), "type": "gap_shelf", "weight": 1})
+        px = yf.download(tkr, period="6mo", progress=False)
+        if px is not None and not px.empty:
+            px = px.copy()
+            px["prev_close"] = px["Close"].shift(1)
+            px["gap"] = (px["Open"] - px["prev_close"]) / px["prev_close"]
+            gaps = px[px["gap"].abs() > 0.02]
+            for idx, row in gaps.tail(5).iterrows():
+                window = px.loc[idx:].head(8)
+                if len(window) >= 3:
+                    shelf = float(window["Close"].median())
+                    zones.append({"ticker": tkr, "level": shelf, "type": "gap_shelf", "weight": 1})
+    except Exception:
+        pass
     return zones
 
 # ---------------------------- STRATEGY DECISION ---------------------------- #
 def _decide_play(sig: Signal) -> str:
-    """VSRP gates: IV rich + skew extreme + momentum alignment, with IVR guard & time gate."""
     if not sig.time_gate:
         return "KILL (dead time)"
     if not np.isfinite(sig.ivrv_ratio) or sig.ivrv_ratio < IVRV_THRESHOLD:
@@ -437,7 +448,6 @@ def _decide_play(sig: Signal) -> str:
     if not np.isfinite(sig.skew_z) or abs(sig.skew_z) < SKEW_ZSCORE_THRESHOLD:
         return "KILL (skew not extreme)"
     if sig.momentum == "bull" and sig.rr25 > 0:
-        # Switch to credit if IV rank too low (drain guard)
         return "Bull Put Credit" if (np.isfinite(sig.iv_rank) and sig.iv_rank < IVR_LOW_GUARD) else "Bull Call Debit"
     if sig.momentum == "bear" and sig.rr25 < 0:
         return "Bear Call Credit" if (np.isfinite(sig.iv_rank) and sig.iv_rank < IVR_LOW_GUARD) else "Bear Put Debit"
@@ -445,7 +455,6 @@ def _decide_play(sig: Signal) -> str:
 
 # ---------------------------- RISK / SIZING ---------------------------- #
 def _position_risk_unit(equity: float, peak_equity: Optional[float] = None) -> float:
-    """Scale risk with performance: +30% => 1.5x; drawdown -15% => 0.5x."""
     if peak_equity is None:
         peak_equity = equity
     dd = (equity - peak_equity) / peak_equity
@@ -463,17 +472,14 @@ def _analyze_single(tkr: str):
         return None
     sig, calls, puts, spot, T = snap
 
-    # Persist & compute IV Rank
     today = pd.Timestamp.utcnow().normalize()
     iv_rank, iv_rank_delta = _compute_iv_rank_from_history(sig.ticker, sig.atm_iv, today)
     sig.iv_rank = iv_rank
     sig.iv_rank_delta = iv_rank_delta
     sig.vega_flip = bool(np.isfinite(iv_rank_delta) and iv_rank_delta >= VEGA_FLIP_DELTA)
 
-    # Time gate
     sig.time_gate = _in_deploy_window()
 
-    # Fill metric row and persist
     _append_metric_row({
         "date": today, "ticker": sig.ticker, "price": sig.price, "dte": sig.dte,
         "atm_iv": sig.atm_iv, "rv20": sig.rv20, "ivrv": sig.ivrv_ratio, "rr25": sig.rr25,
@@ -482,8 +488,7 @@ def _analyze_single(tkr: str):
 
     return sig, calls, puts, spot, T
 
-def run_vsrp_scan(tickers=LIQUID_TICKERS) -> pd.DataFrame:
-    # Parallel collection
+def run_vsrp_scan(tickers: List[str] = LIQUID_TICKERS) -> pd.DataFrame:
     pods = []
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         futs = {ex.submit(_analyze_single, tkr): tkr for tkr in tickers}
@@ -495,29 +500,23 @@ def run_vsrp_scan(tickers=LIQUID_TICKERS) -> pd.DataFrame:
     if not pods:
         return pd.DataFrame()
 
-    # Cross-sectional skew z-score
     sigs = [p[0] for p in pods]
     rr_vals = np.array([s.rr25 for s in sigs], dtype=float)
-    rr_z = zscore(np.where(np.isfinite(rr_vals), rr_vals, np.nan), nan_policy='omit')
-    for s, z in zip(sigs, rr_z):
-        s.skew_z = float(z) if np.isfinite(z) else np.nan
-        s.play = _decide_play(s)
+    rr_z = _zscore_nan(rr_vals)
 
-    # Build spreads + skew magnet zones
     rows = []
-    all_zones = []
-    for (sig, calls, puts, spot, T) in pods:
-        # skew magnets
+    all_zones: List[dict] = []
+    for (sig, calls, puts, spot, T), z in zip(pods, rr_z):
+        sig.skew_z = float(z) if np.isfinite(z) else np.nan
+        sig.play = _decide_play(sig)
+
         zones = _skew_magnet_zones(sig.ticker, calls, puts, spot)
         all_zones.extend(zones)
 
         spread_detail = None
         if "Debit" in sig.play or "Credit" in sig.play:
-            spread_detail = _select_vertical_spread(
-                calls, puts, spot, T, sig.expiry, kind=sig.play
-            )
+            spread_detail = _select_vertical_spread(calls, puts, spot, T, sig.expiry, sig.play)
 
-        # Earnings IV trap flag (if close & IV pumped)
         earnings_flag = False
         if sig.earnings_days is not None and sig.earnings_days <= 10 and np.isfinite(sig.atm_iv) and sig.atm_iv >= 0.80:
             earnings_flag = True
@@ -542,33 +541,35 @@ def run_vsrp_scan(tickers=LIQUID_TICKERS) -> pd.DataFrame:
             "spread": spread_detail.__dict__ if spread_detail else None
         })
 
-    # Save zones snapshot (optional dashboard helper)
     if all_zones:
-        zdf = pd.DataFrame(all_zones).drop_duplicates()
         try:
-            prev = pd.read_csv(SKew_ZONES_CSV)
-            zdf = pd.concat([prev, zdf], ignore_index=True).drop_duplicates()
+            zdf = pd.DataFrame(all_zones).drop_duplicates()
+            try:
+                prev = pd.read_csv(SKEW_ZONES_CSV)
+                zdf = pd.concat([prev, zdf], ignore_index=True).drop_duplicates()
+            except Exception:
+                pass
+            zdf.to_csv(SKEW_ZONES_CSV, index=False)
         except Exception:
             pass
-        zdf.to_csv(SKew_ZONES_CSV, index=False)
 
     df = pd.DataFrame(rows).sort_values(by=["ivrv_ratio"], ascending=False, na_position="last").reset_index(drop=True)
     return df
 
 # ---------------------------- HEATMAP FROM TRADE LOG ---------------------------- #
 def time_scaling_heatmap(trade_log_csv: str = TRADE_LOG_CSV) -> Optional[pd.DataFrame]:
-    """Expect trade log with columns: timestamp (ISO), ticker, R (float)."""
     try:
         log = pd.read_csv(trade_log_csv, parse_dates=["timestamp"])
     except Exception:
         return None
     if log.empty:
         return None
-    log["hour"] = log["timestamp"].dt.tz_localize("UTC").dt.tz_convert(TIMEZONE_ET).dt.hour
-    log["dow"]  = log["timestamp"].dt.tz_localize("UTC").dt.tz_convert(TIMEZONE_ET).dt.weekday
-    # Win = R>0
+    log["timestamp"] = pd.to_datetime(log["timestamp"], utc=True, errors="coerce")
+    log = log.dropna(subset=["timestamp"])
+    log["hour"] = log["timestamp"].dt.tz_convert(TIMEZONE_ET).dt.hour
+    log["dow"]  = log["timestamp"].dt.tz_convert(TIMEZONE_ET).dt.weekday
     agg = log.groupby(["dow","hour"]).agg(
-        win_rate=("R", lambda x: np.mean(x>0) if len(x)>0 else np.nan),
+        win_rate=("R", lambda x: float(np.mean(x>0)) if len(x)>0 else np.nan),
         avg_R=("R", "mean"),
         n=("R", "count")
     ).reset_index()
@@ -584,12 +585,10 @@ if __name__ == "__main__":
         cols = ["ticker","price","expiry","dte","ivrv_ratio","rr25","skew_z","iv_rank","iv_rank_delta","vega_flip","momentum","time_gate","earnings_trap","play"]
         print(df[cols].to_string(index=False))
 
-        # Position sizing suggestion (toy ladder)
         equity = BASE_EQUITY
         risk_unit = _position_risk_unit(equity, peak_equity=equity)
         print(f"\nRisk unit (baseline): ${risk_unit:,.2f} per trade.")
 
-        # Spread details
         for _, row in df.iterrows():
             if isinstance(row["spread"], dict):
                 s = row["spread"]
