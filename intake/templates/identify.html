@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Identify · {{ product.sku }}{% endblock %}
+{% block content %}
+<section class="screen identify-screen">
+  <div class="hero-copy">
+    <p class="eyebrow">Screen 2 · {{ product.sku }}</p>
+    <h1>{{ product.title or "Identifying…" }}</h1>
+    <p class="lede">
+      {% if product.identify_confidence is not none %}
+      Confidence {{ (product.identify_confidence * 100)|round(0)|int }}% · {{ product.identify_notes }}
+      {% else %}
+      Review the match, then continue.
+      {% endif %}
+    </p>
+  </div>
+
+  <div class="split">
+    <div class="photo-rail">
+      {% for photo in product.photos %}
+      <img src="{{ photo }}" alt="Product photo" />
+      {% endfor %}
+    </div>
+    <div class="identify-panel">
+      <dl class="facts">
+        <div><dt>Title</dt><dd>{{ product.title }}</dd></div>
+        <div><dt>Short</dt><dd>{{ product.short_description or "—" }}</dd></div>
+        <div><dt>Description</dt><dd>{{ product.description or "—" }}</dd></div>
+        <div><dt>Suggested cost</dt><dd>{% if product.cost is not none %}${{ '%.2f'|format(product.cost) }}{% else %}—{% endif %}</dd></div>
+        <div><dt>Suggested price</dt><dd>{% if product.price is not none %}${{ '%.2f'|format(product.price) }}{% else %}—{% endif %}</dd></div>
+        <div><dt>Shelf</dt><dd>{{ product.shelf or "—" }}</dd></div>
+      </dl>
+
+      <form class="inline-form" action="/products/{{ product.id }}/reidentify" method="post">
+        <label>
+          Re-run with hint
+          <input type="text" name="hint" placeholder="usb cable, notebook…" />
+        </label>
+        <button type="submit" class="btn ghost">Re-identify</button>
+      </form>
+
+      <div class="actions">
+        <a class="btn ghost" href="/">← New capture</a>
+        <a class="btn primary" href="/products/{{ product.id }}/review">Looks right · Review →</a>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
