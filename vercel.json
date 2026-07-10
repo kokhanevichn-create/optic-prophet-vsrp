@@ -1,20 +1,13 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "version": 2,
   "framework": null,
   "buildCommand": null,
   "outputDirectory": null,
   "installCommand": "pip install -r requirements.txt",
-  "builds": [
-    {
-      "src": "app.py",
-      "use": "@vercel/python"
+  "functions": {
+    "app.py": {
+      "maxDuration": 60,
+      "excludeFiles": "{intake/tests/**,**/*.pyc,**/__pycache__/**,.pytest_cache/**,streamlit_app.py,README.md}"
     }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "app.py"
-    }
-  ]
+  }
 }

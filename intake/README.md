@@ -45,19 +45,26 @@ Without Shopify credentials the app runs in **mock mode** and still assigns a fa
 
 ## Deployment (Vercel)
 
-This is a **FastAPI / Python** app. There is no `package.json` and no Vite frontend.
+**Architecture:** Python FastAPI + Jinja templates + SQLite. Not a Vite app.  
+There is no `package.json`, `vite.config`, frontend `src/`, or `index.html` in this repo.
 
-- Entrypoint: root `app.py` exports FastAPI `app` (also declared in `pyproject.toml` → `[tool.vercel]`)
-- `vercel.json` sets `framework` / `buildCommand` / `outputDirectory` to `null` (overrides dashboard Vite preset) and installs via `pip install -r requirements.txt`
+| Setting | Correct value |
+| --- | --- |
+| Root Directory | `.` (repository root) |
+| Install Command | `pip install -r requirements.txt` |
+| Build Command | none (`null` — do **not** use `vite build`) |
+| Output Directory | none (`null` — not `dist`) |
+| Entrypoint | `app.py` → FastAPI instance `app` |
 
-**Required once in the Vercel dashboard** (Project → Settings → Build & Development):
+`vercel.json` forces those overrides so a leftover Vite dashboard preset cannot call `vite`.
 
-1. Framework Preset → **Other** (or clear Override)
-2. Build Command → clear / disable Override (do not leave `vite` / `vite build`)
-3. Output Directory → clear (not `dist`)
-4. Install Command → `pip install -r requirements.txt` (or clear Override so `vercel.json` wins)
+Verify locally before deploy:
 
-Then redeploy.
+```bash
+bash scripts/verify_deploy.sh
+```
+
+**Dashboard (once):** Project → Settings → Build & Development → Framework **Other**, clear Build Command / Output Directory overrides that still say `vite` / `dist`. Production must deploy this branch (or merge to `main`); older `main` commits have no FastAPI entrypoint and will keep failing if the project still runs `vite build`.
 
 ## Validation gate (do this before Marketplace)
 
