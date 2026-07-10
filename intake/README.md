@@ -48,9 +48,16 @@ Without Shopify credentials the app runs in **mock mode** and still assigns a fa
 This is a **FastAPI / Python** app. There is no `package.json` and no Vite frontend.
 
 - Entrypoint: root `app.py` exports FastAPI `app` (also declared in `pyproject.toml` → `[tool.vercel]`)
-- `vercel.json` clears any Vite build/output settings (`buildCommand` / `outputDirectory` = `null`) and installs via `pip install -r requirements.txt`
+- `vercel.json` sets `framework` / `buildCommand` / `outputDirectory` to `null` (overrides dashboard Vite preset) and installs via `pip install -r requirements.txt`
 
-If a Vercel project was previously set to the Vite preset, save/redeploy after this lands so dashboard overrides stop calling `vite`.
+**Required once in the Vercel dashboard** (Project → Settings → Build & Development):
+
+1. Framework Preset → **Other** (or clear Override)
+2. Build Command → clear / disable Override (do not leave `vite` / `vite build`)
+3. Output Directory → clear (not `dist`)
+4. Install Command → `pip install -r requirements.txt` (or clear Override so `vercel.json` wins)
+
+Then redeploy.
 
 ## Validation gate (do this before Marketplace)
 

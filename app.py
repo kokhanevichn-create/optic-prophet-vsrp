@@ -1,7 +1,6 @@
-"""ASGI entrypoint for Vercel / local uvicorn.
+"""Vercel / ASGI entrypoint — FastAPI Product Intake.
 
-This repository is a FastAPI (Python) app — not a Vite frontend.
-Vercel looks for a FastAPI instance named `app` in app.py at the repo root.
+This repository is a Python FastAPI app (not Vite / Node).
 """
 
 from intake.app import app
