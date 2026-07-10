@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "python -c \"print('FastAPI app — skipping Vite; no frontend build')\"",
+  "outputDirectory": "",
+  "installCommand": "pip install -r requirements.txt",
+  "functions": {
+    "app.py": {
+      "maxDuration": 60
+    }
+  }
+}

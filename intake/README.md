@@ -36,11 +36,21 @@ pip install -r requirements.txt
 cp intake/.env.example intake/.env
 # Optional: set SHOPIFY_STORE_DOMAIN + SHOPIFY_ACCESS_TOKEN for live drafts
 python -m intake
+# or: uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
 Open http://localhost:8000
 
 Without Shopify credentials the app runs in **mock mode** and still assigns a fake Shopify product ID so you can exercise the full path.
+
+## Deployment (Vercel)
+
+This is a **FastAPI / Python** app. There is no `package.json` and no Vite frontend.
+
+- Entrypoint: root `app.py` exports FastAPI `app` (also declared in `pyproject.toml` → `[tool.vercel]`)
+- `vercel.json` clears any Vite build/output settings (`buildCommand` / `outputDirectory` = `null`) and installs via `pip install -r requirements.txt`
+
+If a Vercel project was previously set to the Vite preset, save/redeploy after this lands so dashboard overrides stop calling `vite`.
 
 ## Validation gate (do this before Marketplace)
 
