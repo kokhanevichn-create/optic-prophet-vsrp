@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Capture · Product Intake{% endblock %}
+{% block content %}
+<section class="screen capture-screen">
+  <div class="hero-copy">
+    <p class="eyebrow">Screen 1</p>
+    <h1>Capture the product</h1>
+    <p class="lede">Photo first. Hint optional. We identify, you review, then push a Shopify draft.</p>
+  </div>
+
+  <form class="capture-form" action="/api/products" method="post" enctype="multipart/form-data" id="capture-form">
+    <label class="dropzone" id="dropzone">
+      <input type="file" name="photos" accept="image/*" multiple required capture="environment" id="photo-input" />
+      <div class="dropzone-inner">
+        <strong>Drop photos or tap to shoot</strong>
+        <span>JPG, PNG, or WebP · one or more angles</span>
+      </div>
+      <div class="preview-grid" id="preview-grid" hidden></div>
+    </label>
+
+    <div class="field-row">
+      <label>
+        Identify hint
+        <input type="text" name="hint" placeholder="e.g. usb cable, phone case, led bulb…" list="hint-list" />
+      </label>
+      <datalist id="hint-list">
+        {% for item in sample_catalog %}
+        <option value="{{ item.keywords[0] }}">{{ item.title }}</option>
+        {% endfor %}
+      </datalist>
+      <label>
+        Shelf
+        <input type="text" name="shelf" placeholder="A-12" />
+      </label>
+    </div>
+
+    <div class="field-row">
+      <label>
+        Cost (optional)
+        <input type="number" name="cost" step="0.01" min="0" placeholder="1.25" />
+      </label>
+      <label>
+        Price (optional)
+        <input type="number" name="price" step="0.01" min="0" placeholder="6.99" />
+      </label>
+    </div>
+
+    <button type="submit" class="btn primary" id="capture-submit">Identify product →</button>
+  </form>
+
+  {% if products %}
+  <aside class="recent">
+    <h2>Recent intakes</h2>
+    <ul>
+      {% for p in products[:8] %}
+      <li>
+        <a href="/products/{{ p.id }}/identify">
+          <span class="sku">{{ p.sku }}</span>
+          <span class="title">{{ p.title or "Untitled" }}</span>
+          <span class="status">{{ p.inventory_status.value }}</span>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+  </aside>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Review · {{ product.sku }}{% endblock %}
+{% block content %}
+<section class="screen review-screen">
+  <div class="hero-copy">
+    <p class="eyebrow">Screen 3 · {{ product.sku }}</p>
+    <h1>Edit before draft</h1>
+    <p class="lede">Fix title, copy, cost, price, and shelf. This is what Shopify gets.</p>
+  </div>
+
+  <div class="split">
+    <div class="photo-rail">
+      {% for photo in product.photos %}
+      <img src="{{ photo }}" alt="Product photo" />
+      {% endfor %}
+    </div>
+    <form class="review-form" action="/products/{{ product.id }}/review" method="post">
+      <label>
+        Title
+        <input type="text" name="title" value="{{ product.title }}" required />
+      </label>
+      <label>
+        Short description
+        <input type="text" name="short_description" value="{{ product.short_description }}" />
+      </label>
+      <label>
+        Description
+        <textarea name="description" rows="5">{{ product.description }}</textarea>
+      </label>
+      <div class="field-row">
+        <label>
+          SKU
+          <input type="text" name="sku" value="{{ product.sku }}" />
+        </label>
+        <label>
+          Shelf
+          <input type="text" name="shelf" value="{{ product.shelf }}" />
+        </label>
+      </div>
+      <div class="field-row">
+        <label>
+          Cost
+          <input type="number" name="cost" step="0.01" min="0" value="{{ product.cost if product.cost is not none else '' }}" />
+        </label>
+        <label>
+          Price
+          <input type="number" name="price" step="0.01" min="0" value="{{ product.price if product.price is not none else '' }}" />
+        </label>
+      </div>
+      <div class="actions">
+        <a class="btn ghost" href="/products/{{ product.id }}/identify">← Identify</a>
+        <button type="submit" class="btn primary">Save · Shopify draft →</button>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}

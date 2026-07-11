@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Shopify Draft · {{ product.sku }}{% endblock %}
+{% block content %}
+<section class="screen shopify-screen">
+  <div class="hero-copy">
+    <p class="eyebrow">Screen 4 · {{ product.sku }}</p>
+    <h1>Create Shopify draft</h1>
+    <p class="lede">
+      Push title, description, price, SKU, and photos as a <em>draft</em> product.
+      Marketplace handoff stays off until five products validate.
+    </p>
+  </div>
+
+  <div class="split">
+    <div class="summary-card">
+      <h2>{{ product.title }}</h2>
+      <p class="muted">{{ product.short_description }}</p>
+      <dl class="facts compact">
+        <div><dt>SKU</dt><dd>{{ product.sku }}</dd></div>
+        <div><dt>Shelf</dt><dd>{{ product.shelf or "—" }}</dd></div>
+        <div><dt>Cost</dt><dd>{% if product.cost is not none %}${{ '%.2f'|format(product.cost) }}{% else %}—{% endif %}</dd></div>
+        <div><dt>Price</dt><dd>{% if product.price is not none %}${{ '%.2f'|format(product.price) }}{% else %}—{% endif %}</dd></div>
+        <div><dt>Status</dt><dd>{{ product.inventory_status.value }}</dd></div>
+        <div><dt>Shopify ID</dt><dd>{{ product.shopify_product_id or "—" }}</dd></div>
+        <div><dt>Marketplace URL</dt><dd>{{ product.marketplace_url or "deferred" }}</dd></div>
+      </dl>
+      <div class="photo-rail small">
+        {% for photo in product.photos %}
+        <img src="{{ photo }}" alt="" />
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="push-panel">
+      {% if error %}
+      <div class="banner error">{{ error }}</div>
+      {% endif %}
+
+      {% if result %}
+      <div class="banner ok">
+        {% if result.mock %}
+        Draft simulated (mock mode). Product ID <code>{{ result.id }}</code>.
+        {% else %}
+        Draft created in Shopify. Product ID <code>{{ result.id }}</code>.
+        {% endif %}
+      </div>
+      <p>
+        <a class="btn primary" href="{{ result.admin_url }}" target="_blank" rel="noopener">Open in Shopify admin</a>
+      </p>
+      <p class="muted">{{ result.message if result.mock else "Images attached. Review the draft in Shopify, then test the next product." }}</p>
+      <div class="actions">
+        <a class="btn ghost" href="/">Capture next product →</a>
+      </div>
+      {% else %}
+      <form action="/products/{{ product.id }}/shopify" method="post">
+        <p>Ready to create a <strong>draft</strong> only — not published.</p>
+        {% if shopify_mock %}
+        <p class="muted">Running in mock mode. Add credentials to <code>.env</code> for a live push.</p>
+        {% endif %}
+        <div class="actions">
+          <a class="btn ghost" href="/products/{{ product.id }}/review">← Review</a>
+          <button type="submit" class="btn primary">Create Shopify draft</button>
+        </div>
+      </form>
+      {% endif %}
+
+      <div class="gate">
+        <h3>Validation gate</h3>
+        <p>Test five cheap products. Confirm each one:</p>
+        <ol>
+          <li>Identifies correctly</li>
+          <li>Saves correctly (SKU, photos, title, descriptions, cost, price, shelf, status)</li>
+          <li>Uploads images correctly</li>
+          <li>Appears in Shopify as a draft</li>
+        </ol>
+        <p class="muted">Only then add Marketplace handoff.</p>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

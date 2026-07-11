@@ -1,0 +1,10 @@
+# Dev / test extras (not required for Vercel deploy)
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+
+# Legacy Optic Prophet Streamlit app
+streamlit
+yfinance
+numpy
+pandas
+scipy

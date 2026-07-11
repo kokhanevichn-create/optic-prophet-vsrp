@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Product Intake{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/app.css" />
+</head>
+<body>
+  <div class="atmosphere" aria-hidden="true"></div>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">Intake</span>
+      <span class="brand-sub">Shopify draft · foundation</span>
+    </div>
+    {% if shopify_mock %}
+    <div class="mode-pill" title="Set SHOPIFY_STORE_DOMAIN + SHOPIFY_ACCESS_TOKEN for live drafts">Mock Shopify</div>
+    {% else %}
+    <div class="mode-pill live">Live Shopify</div>
+    {% endif %}
+  </header>
+
+  <nav class="steps" aria-label="Intake steps">
+    {% for s in screens %}
+      {% if s.path and not s.active %}
+        <a class="step" href="{{ s.path }}">{{ s.label }}</a>
+      {% elif s.active %}
+        <span class="step active">{{ s.label }}</span>
+      {% else %}
+        <span class="step muted">{{ s.label }}</span>
+      {% endif %}
+    {% endfor %}
+  </nav>
+
+  <main class="main">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="foot">
+    Saves SKU · photos · title · descriptions · cost · price · shelf · Shopify product ID · marketplace URL · inventory status.
+    Marketplace handoff comes after five products validate.
+  </footer>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
