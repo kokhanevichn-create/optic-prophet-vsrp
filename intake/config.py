@@ -11,8 +11,16 @@ ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
 load_dotenv(ROOT.parent / ".env")
 
-DATA_DIR = ROOT / "data"
-UPLOAD_DIR = ROOT / "static" / "uploads"
+# Vercel’s function filesystem is read-only except /tmp.
+# Keep package static assets in-repo; put SQLite + uploads in /tmp there.
+ON_VERCEL = os.getenv("VERCEL") == "1" or bool(os.getenv("VERCEL_ENV"))
+if ON_VERCEL:
+    DATA_DIR = Path("/tmp/intake/data")
+    UPLOAD_DIR = Path("/tmp/intake/uploads")
+else:
+    DATA_DIR = ROOT / "data"
+    UPLOAD_DIR = ROOT / "static" / "uploads"
+
 DB_PATH = DATA_DIR / "products.db"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)

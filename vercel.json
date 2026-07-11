@@ -7,7 +7,7 @@
   "functions": {
     "app.py": {
       "maxDuration": 60,
-      "excludeFiles": "{intake/tests/**,**/*.pyc,**/__pycache__/**,.pytest_cache/**,streamlit_app.py}"
+      "excludeFiles": "{intake/tests/**,**/*.pyc,**/__pycache__/**,.pytest_cache/**,streamlit_app.py,scripts/**}"
     }
   }
 }

@@ -20,6 +20,13 @@ from .store import ProductStore
 
 ROOT = Path(__file__).resolve().parent
 app = FastAPI(title="Product Intake", version="0.1.0")
+# Uploads may live under /tmp on Vercel; mount that path before package static/.
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+app.mount(
+    "/static/uploads",
+    StaticFiles(directory=str(UPLOAD_DIR)),
+    name="uploads",
+)
 app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 templates = Jinja2Templates(directory=str(ROOT / "templates"))
 
