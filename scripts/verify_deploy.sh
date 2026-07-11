@@ -47,6 +47,24 @@ grep -q "Capture" /tmp/intake-home.html
 grep -q "Intake" /tmp/intake-home.html
 echo "GET / -> $code (Capture screen OK)"
 
+echo "== vercel read-only path mode =="
+VERCEL=1 python3 - <<'PY'
+import os
+os.environ["VERCEL"] = "1"
+# Fresh import under Vercel mode
+import importlib
+import sys
+for mod in list(sys.modules):
+    if mod == "intake" or mod.startswith("intake.") or mod == "app":
+        del sys.modules[mod]
+from intake import config
+assert str(config.DATA_DIR).startswith("/tmp/"), config.DATA_DIR
+assert str(config.UPLOAD_DIR).startswith("/tmp/"), config.UPLOAD_DIR
+from app import app
+assert app.title == "Product Intake"
+print("vercel mode ok:", config.DATA_DIR, config.UPLOAD_DIR)
+PY
+
 echo
 echo "Production path verified."
-echo "Vercel: root=., install='pip install -r requirements.txt', build=null (no vite), output=null"
+echo "Vercel: framework=fastapi, install='pip install -r requirements.txt', build=null, output=null"
