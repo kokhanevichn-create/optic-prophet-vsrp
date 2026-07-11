@@ -4,43 +4,106 @@
 <section class="screen identify-screen">
   <div class="hero-copy">
     <p class="eyebrow">Screen 2 · {{ product.sku }}</p>
-    <h1>{{ product.title or "Identifying…" }}</h1>
+    <h1>
+      {% if product.identification_status.value == 'manual_entry_required' %}
+      Could not confidently identify
+      {% else %}
+      {{ product.title or product.product_type or "Draft ready for review" }}
+      {% endif %}
+    </h1>
     <p class="lede">
       {% if product.identify_confidence is not none %}
-      Confidence {{ (product.identify_confidence * 100)|round(0)|int }}% · {{ product.identify_notes }}
-      {% else %}
-      Review the match, then continue.
+      Confidence {{ (product.identify_confidence * 100)|round(0)|int }}%
+      · {{ product.identification_status.value.replace('_', ' ') }}
       {% endif %}
     </p>
   </div>
 
+  {% if product.identification_status.value == 'manual_entry_required' %}
+  <div class="banner error">
+    Could not confidently identify this item. Add a clearer photo, barcode, label photo, or product hint.
+    You can still continue and enter details manually.
+  </div>
+  {% elif product.identify_confidence is not none and product.identify_confidence < 0.8 %}
+  <div class="banner warn">
+    Uncertain identification. Review marked fields carefully before saving.
+  </div>
+  {% endif %}
+
+  {% if product.hint_conflict %}
+  <div class="banner warn">
+    Hint and image cues may conflict. Confirm the category before listing.
+    {% if product.operator_hint %}Hint: “{{ product.operator_hint }}”.{% endif %}
+  </div>
+  {% endif %}
+
+  {% if product.multi_product_warning %}
+  <div class="banner warn">These images may contain multiple products.</div>
+  {% endif %}
+
   <div class="split">
     <div class="photo-rail">
       {% for photo in product.photos %}
-      <img src="{{ photo }}" alt="Product photo" />
+      <img src="{{ photo }}" alt="Product photo {{ loop.index }}" class="{% if loop.index0 == product.main_photo_index %}main-photo{% endif %}" />
       {% endfor %}
     </div>
     <div class="identify-panel">
       <dl class="facts">
-        <div><dt>Title</dt><dd>{{ product.title }}</dd></div>
-        <div><dt>Short</dt><dd>{{ product.short_description or "—" }}</dd></div>
-        <div><dt>Description</dt><dd>{{ product.description or "—" }}</dd></div>
-        <div><dt>Suggested cost</dt><dd>{% if product.cost is not none %}${{ '%.2f'|format(product.cost) }}{% else %}—{% endif %}</dd></div>
-        <div><dt>Suggested price</dt><dd>{% if product.price is not none %}${{ '%.2f'|format(product.price) }}{% else %}—{% endif %}</dd></div>
-        <div><dt>Shelf</dt><dd>{{ product.shelf or "—" }}</dd></div>
+        <div><dt>Category</dt><dd>{{ product.category or "—" }}</dd></div>
+        <div><dt>Product type</dt><dd>{{ product.product_type or "—" }}</dd></div>
+        <div><dt>Brand</dt><dd>{{ product.brand or "—" }}</dd></div>
+        <div><dt>Model</dt><dd>{{ product.model or "—" }}</dd></div>
+        <div><dt>Condition</dt><dd>{{ product.condition or "—" }}</dd></div>
+        <div><dt>Color / material</dt><dd>{{ product.color or "—" }} / {{ product.material or "—" }}</dd></div>
+        <div><dt>Dimensions</dt><dd>{{ product.dimensions or "—" }}</dd></div>
+        <div><dt>Included</dt><dd>{{ product.included_items or "—" }}</dd></div>
+        <div><dt>Your cost</dt><dd>{% if product.cost is not none %}${{ '%.2f'|format(product.cost) }}{% if product.cost_user_entered %} (entered){% endif %}{% else %}—{% endif %}</dd></div>
+        <div><dt>Your price</dt><dd>{% if product.price is not none %}${{ '%.2f'|format(product.price) }}{% if product.price_user_entered %} (entered){% endif %}{% else %}—{% endif %}</dd></div>
+        <div><dt>Suggested price</dt><dd>
+          {% if product.suggested_price_low is not none or product.suggested_price_high is not none %}
+            ${{ '%.2f'|format(product.suggested_price_low or 0) }}–${{ '%.2f'|format(product.suggested_price_high or 0) }}
+            <span class="muted">suggestion{% if product.price_suggestion_source %} · {{ product.price_suggestion_source }}{% endif %}</span>
+          {% elif product.suggested_price is not none %}
+            ${{ '%.2f'|format(product.suggested_price) }} <span class="muted">suggestion</span>
+          {% else %}
+            —
+          {% endif %}
+        </dd></div>
+        <div><dt>Notes</dt><dd>{{ product.identify_notes or "—" }}</dd></div>
       </dl>
+
+      {% if product.possible_categories %}
+      <div class="alts">
+        <h3>Possible categories</h3>
+        <ul>
+          {% for c in product.possible_categories %}
+          <li>{{ c }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if product.uncertain_fields %}
+      <p class="muted">Uncertain fields: {{ product.uncertain_fields|join(', ') }}</p>
+      {% endif %}
 
       <form class="inline-form" action="/products/{{ product.id }}/reidentify" method="post">
         <label>
           Re-run with hint
-          <input type="text" name="hint" placeholder="usb cable, notebook…" />
+          <input type="text" name="hint" value="{{ product.operator_hint }}" placeholder="vanity desk, chair, mirror…" />
         </label>
-        <button type="submit" class="btn ghost">Re-identify</button>
+        <button type="submit" class="btn ghost">Re-analyze</button>
       </form>
 
       <div class="actions">
         <a class="btn ghost" href="/">← New capture</a>
-        <a class="btn primary" href="/products/{{ product.id }}/review">Looks right · Review →</a>
+        <a class="btn primary" href="/products/{{ product.id }}/review">
+          {% if product.identification_status.value == 'manual_entry_required' %}
+          Continue manually →
+          {% else %}
+          Review & edit →
+          {% endif %}
+        </a>
       </div>
     </div>
   </div>
