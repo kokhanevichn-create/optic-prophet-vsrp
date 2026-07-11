@@ -5,15 +5,24 @@
   <div class="hero-copy">
     <p class="eyebrow">Screen 1</p>
     <h1>Capture the product</h1>
-    <p class="lede">Photo first. Hint optional. We identify, you review, then push a Shopify draft.</p>
+    <p class="lede">Upload photos of the actual item. Add a hint when you know the category — it strongly guides identification.</p>
   </div>
+
+  {% if error %}
+  <div class="banner error">
+    {% if error == 'no_photo' %}No photo uploaded. Add at least one image.{% endif %}
+    {% if error == 'unsupported_image' %}Unsupported image type. Use JPG, PNG, WebP, or GIF.{% endif %}
+    {% if error == 'save_failed' %}Could not save this intake. Try again.{% endif %}
+    {% if error not in ['no_photo','unsupported_image','save_failed'] %}{{ error }}{% endif %}
+  </div>
+  {% endif %}
 
   <form class="capture-form" action="/api/products" method="post" enctype="multipart/form-data" id="capture-form">
     <label class="dropzone" id="dropzone">
       <input type="file" name="photos" accept="image/*" multiple required capture="environment" id="photo-input" />
       <div class="dropzone-inner">
         <strong>Drop photos or tap to shoot</strong>
-        <span>JPG, PNG, or WebP · one or more angles</span>
+        <span>JPG, PNG, or WebP · one or more angles of the same product</span>
       </div>
       <div class="preview-grid" id="preview-grid" hidden></div>
     </label>
@@ -21,12 +30,14 @@
     <div class="field-row">
       <label>
         Identify hint
-        <input type="text" name="hint" placeholder="e.g. usb cable, phone case, led bulb…" list="hint-list" />
+        <input type="text" name="hint" placeholder="e.g. vanity desk, dining chair, mirror…" list="hint-list" />
       </label>
       <datalist id="hint-list">
-        {% for item in sample_catalog %}
-        <option value="{{ item.keywords[0] }}">{{ item.title }}</option>
-        {% endfor %}
+        <option value="vanity desk"></option>
+        <option value="dining chair"></option>
+        <option value="mirror"></option>
+        <option value="usb cable"></option>
+        <option value="phone case"></option>
       </datalist>
       <label>
         Shelf
@@ -36,16 +47,16 @@
 
     <div class="field-row">
       <label>
-        Cost (optional)
-        <input type="number" name="cost" step="0.01" min="0" placeholder="1.25" />
+        Cost (your cost — never overwritten)
+        <input type="number" name="cost" step="0.01" min="0" placeholder="optional" />
       </label>
       <label>
-        Price (optional)
-        <input type="number" name="price" step="0.01" min="0" placeholder="6.99" />
+        Target price (overrides AI suggestion)
+        <input type="number" name="price" step="0.01" min="0" placeholder="optional" />
       </label>
     </div>
 
-    <button type="submit" class="btn primary" id="capture-submit">Identify product →</button>
+    <button type="submit" class="btn primary" id="capture-submit">Analyze photos →</button>
   </form>
 
   {% if products %}
@@ -56,8 +67,8 @@
       <li>
         <a href="/products/{{ p.id }}/identify">
           <span class="sku">{{ p.sku }}</span>
-          <span class="title">{{ p.title or "Untitled" }}</span>
-          <span class="status">{{ p.inventory_status.value }}</span>
+          <span class="title">{{ p.title or p.product_type or "Needs review" }}</span>
+          <span class="status">{{ p.identification_status.value }}</span>
         </a>
       </li>
       {% endfor %}

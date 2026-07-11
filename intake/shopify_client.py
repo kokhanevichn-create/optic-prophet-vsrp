@@ -52,19 +52,31 @@ class ShopifyClient:
         if self.mock:
             return self._mock_create(product)
 
+        # Prefer main photo first
+        photos = list(product.photos)
+        if photos and 0 <= product.main_photo_index < len(photos):
+            main = photos.pop(product.main_photo_index)
+            photos = [main] + photos
+
         body = {
             "product": {
                 "title": product.title or product.sku,
-                "body_html": product.description or product.short_description or "",
-                "vendor": "Intake Tool",
-                "product_type": "General",
+                "body_html": product.shopify_description
+                or product.description
+                or product.short_summary
+                or product.short_description
+                or "",
+                "vendor": product.brand or "Intake Tool",
+                "product_type": product.product_type or product.category or "General",
                 "status": "draft",
-                "tags": f"intake,sku:{product.sku},shelf:{product.shelf or 'unset'}",
+                "tags": (
+                    f"intake,sku:{product.sku},shelf:{product.shelf or 'unset'}"
+                    f",condition:{(product.condition or 'unset')[:40]}"
+                ),
                 "variants": [
                     {
                         "sku": product.sku,
                         "price": f"{(product.price or 0):.2f}",
-                        "cost": product.cost,
                         "inventory_management": None,
                     }
                 ],
@@ -82,7 +94,7 @@ class ShopifyClient:
             created = resp.json().get("product") or {}
             product_id = str(created.get("id"))
 
-            for photo in product.photos:
+            for photo in photos:
                 self._attach_image(client, product_id, photo, product.title)
 
             # Re-fetch to return final state

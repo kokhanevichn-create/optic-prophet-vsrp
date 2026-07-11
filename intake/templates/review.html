@@ -4,49 +4,108 @@
 <section class="screen review-screen">
   <div class="hero-copy">
     <p class="eyebrow">Screen 3 · {{ product.sku }}</p>
-    <h1>Edit before draft</h1>
-    <p class="lede">Fix title, copy, cost, price, and shelf. This is what Shopify gets.</p>
+    <h1>Review before Shopify draft</h1>
+    <p class="lede">Edit extracted facts and copy. Your cost and price are never silently overwritten.</p>
   </div>
+
+  {% if error == 'missing_title' %}
+  <div class="banner error">Title is required before continuing.</div>
+  {% elif error == 'duplicate_sku' %}
+  <div class="banner error">That SKU is already in use. Choose another.</div>
+  {% elif error == 'save_failed' %}
+  <div class="banner error">Database save failed. Try again.</div>
+  {% endif %}
 
   <div class="split">
     <div class="photo-rail">
+      <p class="muted">Select main image</p>
       {% for photo in product.photos %}
-      <img src="{{ photo }}" alt="Product photo" />
+      <label class="thumb-pick">
+        <input type="radio" form="review-form" name="main_photo_index" value="{{ loop.index0 }}" {% if loop.index0 == product.main_photo_index %}checked{% endif %} />
+        <img src="{{ photo }}" alt="Photo {{ loop.index }}" />
+      </label>
       {% endfor %}
+      <div class="fact-box">
+        <h3>Extracted facts</h3>
+        <p class="muted">Confidence {% if product.identify_confidence is not none %}{{ (product.identify_confidence * 100)|round(0)|int }}%{% else %}—{% endif %}</p>
+        <p>{{ product.identify_notes }}</p>
+        {% if product.uncertain_fields %}
+        <p class="muted">Uncertain: {{ product.uncertain_fields|join(', ') }}</p>
+        {% endif %}
+      </div>
+      <div class="fact-box">
+        <h3>User-entered</h3>
+        <p>Cost: {% if product.cost is not none %}${{ '%.2f'|format(product.cost) }}{% else %}—{% endif %}{% if product.cost_user_entered %} ✓{% endif %}</p>
+        <p>Price: {% if product.price is not none %}${{ '%.2f'|format(product.price) }}{% else %}—{% endif %}{% if product.price_user_entered %} ✓{% endif %}</p>
+        <p>Shelf: {{ product.shelf or "—" }}</p>
+        <p>Hint: {{ product.operator_hint or "—" }}</p>
+      </div>
+      {% if product.suggested_price_low is not none or product.suggested_price is not none %}
+      <div class="fact-box">
+        <h3>AI price suggestion</h3>
+        <p>
+          {% if product.suggested_price_low is not none %}
+          ${{ '%.2f'|format(product.suggested_price_low) }}–${{ '%.2f'|format(product.suggested_price_high or product.suggested_price_low) }}
+          {% else %}
+          ${{ '%.2f'|format(product.suggested_price) }}
+          {% endif %}
+        </p>
+        <p class="muted">{{ product.price_suggestion_source or "suggestion only — not applied unless you enter it" }}</p>
+      </div>
+      {% endif %}
     </div>
-    <form class="review-form" action="/products/{{ product.id }}/review" method="post">
+
+    <form id="review-form" class="review-form" action="/products/{{ product.id }}/review" method="post">
       <label>
         Title
-        <input type="text" name="title" value="{{ product.title }}" required />
+        <input type="text" name="title" value="{{ product.title }}" {% if product.identification_status.value != 'manual_entry_required' %}required{% endif %} />
       </label>
       <label>
-        Short description
-        <input type="text" name="short_description" value="{{ product.short_description }}" />
+        Short summary
+        <input type="text" name="short_summary" value="{{ product.short_summary }}" />
       </label>
       <label>
-        Description
-        <textarea name="description" rows="5">{{ product.description }}</textarea>
+        Marketplace description
+        <textarea name="marketplace_description" rows="8">{{ product.marketplace_description }}</textarea>
       </label>
+      <label>
+        Shopify description
+        <textarea name="shopify_description" rows="6">{{ product.shopify_description }}</textarea>
+      </label>
+
       <div class="field-row">
-        <label>
-          SKU
-          <input type="text" name="sku" value="{{ product.sku }}" />
-        </label>
-        <label>
-          Shelf
-          <input type="text" name="shelf" value="{{ product.shelf }}" />
-        </label>
+        <label>Brand <input type="text" name="brand" value="{{ product.brand }}" /></label>
+        <label>Model <input type="text" name="model" value="{{ product.model }}" /></label>
       </div>
       <div class="field-row">
-        <label>
-          Cost
-          <input type="number" name="cost" step="0.01" min="0" value="{{ product.cost if product.cost is not none else '' }}" />
-        </label>
-        <label>
-          Price
-          <input type="number" name="price" step="0.01" min="0" value="{{ product.price if product.price is not none else '' }}" />
-        </label>
+        <label>Category <input type="text" name="category" value="{{ product.category }}" /></label>
+        <label>Product type <input type="text" name="product_type" value="{{ product.product_type }}" /></label>
       </div>
+      <div class="field-row">
+        <label>Condition <input type="text" name="condition" value="{{ product.condition }}" /></label>
+        <label>Color <input type="text" name="color" value="{{ product.color }}" /></label>
+      </div>
+      <div class="field-row">
+        <label>Material <input type="text" name="material" value="{{ product.material }}" /></label>
+        <label>Dimensions <input type="text" name="dimensions" value="{{ product.dimensions }}" placeholder="leave blank if unknown" /></label>
+      </div>
+      <div class="field-row">
+        <label>Quantity <input type="text" name="quantity" value="{{ product.quantity }}" /></label>
+        <label>Included items <input type="text" name="included_items" value="{{ product.included_items }}" /></label>
+      </div>
+      <div class="field-row">
+        <label>SKU <input type="text" name="sku" value="{{ product.sku }}" /></label>
+        <label>Shelf <input type="text" name="shelf" value="{{ product.shelf }}" /></label>
+      </div>
+      <div class="field-row">
+        <label>Cost <input type="number" name="cost" step="0.01" min="0" value="{{ product.cost if product.cost is not none else '' }}" /></label>
+        <label>Price <input type="number" name="price" step="0.01" min="0" value="{{ product.price if product.price is not none else '' }}" /></label>
+      </div>
+      <label>
+        Identification notes
+        <textarea name="identify_notes" rows="2">{{ product.identify_notes }}</textarea>
+      </label>
+
       <div class="actions">
         <a class="btn ghost" href="/products/{{ product.id }}/identify">← Identify</a>
         <button type="submit" class="btn primary">Save · Shopify draft →</button>

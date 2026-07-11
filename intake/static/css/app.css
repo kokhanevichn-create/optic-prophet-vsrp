@@ -361,6 +361,55 @@ input:focus, textarea:focus {
   border: 1px solid rgba(224, 122, 106, 0.4);
 }
 
+.banner.warn {
+  background: rgba(212, 163, 92, 0.14);
+  border: 1px solid rgba(212, 163, 92, 0.4);
+  color: var(--ink);
+}
+
+.thumb-pick {
+  display: block;
+  position: relative;
+  margin-bottom: 0.75rem;
+  cursor: pointer;
+}
+
+.thumb-pick input {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 1;
+}
+
+.thumb-pick img,
+.main-photo {
+  outline: 2px solid transparent;
+}
+
+.thumb-pick input:checked + img,
+img.main-photo {
+  outline-color: var(--accent);
+}
+
+.fact-box {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.fact-box h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.95rem;
+}
+
+.alts ul {
+  margin: 0.35rem 0 0.75rem;
+  padding-left: 1.1rem;
+  color: var(--ink-muted);
+}
+
 .muted { color: var(--ink-muted); }
 code {
   font-size: 0.9em;
